@@ -1,0 +1,60 @@
+// This file is part of nand2tetris, as taught in The Hebrew University, and
+// was written by Aviv Yaish. It is an extension to the specifications given
+// [here](https://www.nand2tetris.org) (Shimon Schocken and Noam Nisan, 2017),
+// as allowed by the Creative Common Attribution-NonCommercial-ShareAlike 3.0
+// Unported [License](https://creativecommons.org/licenses/by-nc-sa/3.0/).
+
+// This chip is an extension of the regular CPU that uses the extended ALU.
+// If instruction[15]==0 or (instruction[14]==1 and instruction[13]==1),
+// then CpuMul behaves exactly the same as the regular CPU.
+// If instruction[15]==1 and instruction[14]==0 the chip will behave as follows:
+// | Instruction           | 15 | 14 | 13 | a | c1 | c2 | c3 | c4 | c5 | c6 |
+// |-----------------------|:--:|:--:|:--:|:-:|:--:|:--:|:--:|:--:|:--:|:--:|
+// | Regular a-instruction |  0 |  * |  * | * |  * |  * |  * |  * |  * |  * |
+// | Regular c-instruction |  1 |  1 |  1 | * |  * |  * |  * |  * |  * |  * |
+// | dest=A<<;jump         |  1 |  0 |  1 | 0 |  1 |  0 |  0 |  0 |  0 |  0 |
+// | dest=D<<;jump         |  1 |  0 |  1 | 0 |  1 |  1 |  0 |  0 |  0 |  0 |
+// | dest=M<<;jump         |  1 |  0 |  1 | 1 |  1 |  0 |  0 |  0 |  0 |  0 |
+// | dest=A>>;jump         |  1 |  0 |  1 | 0 |  0 |  0 |  0 |  0 |  0 |  0 |
+// | dest=D>>;jump         |  1 |  0 |  1 | 0 |  0 |  1 |  0 |  0 |  0 |  0 |
+// | dest=M>>;jump         |  1 |  0 |  1 | 1 |  0 |  0 |  0 |  0 |  0 |  0 |
+
+CHIP CpuMul {
+    IN  inM[16],         // M value input  (M = contents of RAM[A])
+        instruction[16], // Instruction for execution
+        reset;           // Signals whether to re-start the current
+                         // program (reset=1) or continue executing
+                         // the current program (reset=0).
+    OUT outM[16],        // M value output
+        writeM,          // Write into M? 
+        addressM[15],    // Address in data memory (of M)
+        pc[15];          // address of next instruction
+    
+    PARTS:
+    // Put you code here:
+
+    Not(in=instruction[15],out=loadAreg);
+    Mux16(a=instruction,b=outALU,sel=instruction[15],out=REGaIN);           
+    Mux(a=true,b=instruction[5],sel=instruction[15],out=loadAregB);            
+    ARegister(in=REGaIN,load=loadAregB,out=aREGoUT,out[0..14]=addressM);   
+    And(a=instruction[15],b=instruction[3],out=writeM);                     
+    And(a=instruction[14],b=instruction[13],out=CPUa);
+    Or(a=CPUa,b=loadAreg,out=IN8);
+    Mux(a=true,b=instruction[13],sel=instruction[15],out=IN7);
+    Mux16(a=aREGoUT,b=inM,sel=instruction[12],out=ALUdata);
+    ExtendAlu(x=DregOUT,y=ALUdata,instruction[8]=IN8,instruction[7]=IN7,
+              instruction[6]=false,instruction[0..5]=instruction[6..11],out=outALU,out=outM,zr=zr,ng=ng);
+    And(a=instruction[15],b=instruction[4],out=loadRegD);                     
+    DRegister(in=outALU,load=loadRegD,out=DregOUT);                        
+    And(a=instruction[0],b=instruction[15],out=j3);                             
+    And(a=instruction[1],b=instruction[15],out=j2);                            
+    And(a=instruction[2],b=instruction[15],out=j1);                             
+    And(a=j1,b=ng,out=nJ);
+    And(a=j2,b=zr,out=zJ);
+    Or(a=zr,b=ng,out=NT);
+    Not(in=NT,out=nNJ);
+    Or(a=nJ,b=zJ,out=nzJ);
+    And(a=nNJ,b=j3,out=NJ);
+    Or(a=nzJ,b=NJ,out=outJ);
+    PC(in=aREGoUT,load=outJ,inc=true,reset=reset,out[0..14]=pc);
+}

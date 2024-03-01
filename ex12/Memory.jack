@@ -1,0 +1,201 @@
+// This file is part of nand2tetris, as taught in The Hebrew University, and
+// was written by Aviv Yaish. It is an extension to the specifications given
+// [here](https://www.nand2tetris.org) (Shimon Schocken and Noam Nisan, 2017),
+// as allowed by the Creative Common Attribution-NonCommercial-ShareAlike 3.0
+// Unported [License](https://creativecommons.org/licenses/by-nc-sa/3.0/).
+// File name: projects/12/Memory.jack
+
+/**
+ * This library provides two services: direct access to the computer's main
+ * memory (RAM), and allocation and recycling of memory blocks. The Hack RAM
+ * consists of 32,768 words, each holding a 16-bit binary number.
+ */ 
+class Memory {
+
+
+	static Array RAM_map;
+	static Array HEAP_map;
+	
+	static int RAM_start_address ; 			// 0
+	//static int STACK_start_address ; 		// 256
+	static int HEAP_low_address ; 		    // 2048
+	static int HEAP_high_address ; 		    // 16383	 allocation of blocks start from heap high address and goes down toward the stack 
+	
+	static int heap_size ;
+	static int freeList ;					// the head of list of free blocks
+	
+	
+    /** Initializes the class. */
+    function void init() {
+        // Pseudocode:
+        // 1. freeList = heapBase
+        // 2. freeList.length = heapLength
+        // 3. freeList.next = null
+		
+			
+		let RAM_start_address = 0;
+		let HEAP_low_address = 2048;
+		let HEAP_high_address = 16383;  
+
+		
+		let heap_size = HEAP_high_address - HEAP_low_address; // 16383 - 2048  ===> 14335
+		
+		let RAM_map = RAM_start_address;	// set the RAM_map to start from its absolute address
+		let HEAP_map = HEAP_low_address;  	// set the HEAP_map to start from its absolute address
+		
+		// starting the freeList with one block, which is the whole heep
+        let freeList = HEAP_map;				// at init time, all the heap is one free block
+        let RAM_map[freeList] = 14335;    		// the size of this block is the size of the whole heap
+		let RAM_map[freeList + 1] = null;       // there is no next free block
+        return;
+    }
+	
+	
+
+
+    /** Returns the RAM value at the given address. */
+    function int peek(int address) {
+		return RAM_map[address];
+	
+    }
+
+    /** Sets the RAM value at the given address to the given value. */
+    function void poke(int address, int value) {
+	    let RAM_map[address] = value;
+        return;
+    }
+	
+	
+	/*
+	 NOTE the usage of the word 'segment' here is different that the usage of it when considering LOCAL/ARG/TEMP/STATIC/THIS/THAT/POINTER/CONST
+	
+	 each 'segment'  starts with 1 byte that contains its size and then the bytes of the 'user_block'
+	 if the 'segment' is free - then the second byte of the 'segment' is a pointer to the next'segment' at the linked list of free systems_blocks
+	 once 'segment' was allocated to the user, there is no point to use its second byte as a pointer and the second byte is part of the allocated bytes of the 'user_block'
+	 when user request to allocate memory at some 'size'. the OS should find a 'segment' that contains 'size'+1 bytes. 
+	 in other words: the value of the first byte at the 'segment' should be at least 'size'+1 
+	*/
+
+
+	
+    /** Finds an available RAM block of the given size and returns
+     *  a reference to its base address. Assume size > 0. */
+    function int alloc(int size) {
+        // Pseudocode:
+        // 1. Search freeList using best-fit or first-fit heuristics to obtain
+        //    a segment with segment.length > size.
+        //    If no such segment is found, return -1.
+        // 2. block = needed part of the found segment (or all of it, if the 
+        //            segment remainder is too small).
+        // 3. block[-1] = size + 1 // Remember block size, for de-allocation
+        // 4. Update freeList to reflect the allocation
+        // 5. Return block
+        // The figure MemoryTest/MemoryFreeListExample.png illustrates how
+        // the freeList should look like.
+		
+		var int current_free_segment;
+		var int prev_free_segment ;
+		var int block;
+		var int freeSpace;
+		var int new_free_segment;
+		
+		let current_free_segment = freeList;
+		let prev_free_segment = -2;
+		let block = -2;
+		let freeSpace = -2;
+		let new_free_segment = -2;
+		
+		// loop until either we found segment larger that requested size, or we reached the last segment
+		while ((current_free_segment[0] < (size + 1) ) & (~(current_free_segment[1] = null)))
+		{
+			let prev_free_segment = current_free_segment;
+			let current_free_segment = current_free_segment[1] ;
+		}
+		
+		// if the segment size is too small - return -1
+		if (current_free_segment[0] < (size + 1)) 
+		{
+			let block = -1;
+			return block;
+		}
+		
+	
+		if (current_free_segment[0] > (size + 3)) 	 // enough for the requried segment + at least 2 bytes for another block
+		{
+			// if we reached this point, that means the segment is larger than the requested size, so we have to split it
+
+			if (current_free_segment = freeList)
+			{
+				let freeSpace = freeList[0] -  (size + 1) ;
+				let freeList = freeList + size + 1; // skip the bytes that will be used to allocate the current blocks
+				let freeList[0] = freeSpace;
+				let freeList[1] = current_free_segment[1];
+				let block = current_free_segment + 1;
+				let block[-1] = size + 1;
+				return block;
+			}
+			
+			// the segment is at the middle of the list
+			let freeSpace = current_free_segment[0] - (size + 1);
+			let new_free_segment = current_free_segment + size + 1;     // find the address in the segment where the new segment should start
+			let new_free_segment[0] = freeSpace;						// set the new free segment 
+			let new_free_segment[1] = current_free_segment[1]; 			// the new segment should keep pointing  to the next segment
+			let prev_free_segment[1] = new_free_segment; 				// prev segment should point to the new segment
+			
+			let block = current_free_segment + 1;
+			let block[-1] = size + 1;
+					
+			return block;
+		}
+	
+		// the the segment is exaclty at the requested size, or has 1 extra byte - link prev segment to the next segment and return the current one to the user
+		
+		if (current_free_segment = freeList)
+		{
+			let freeList = current_free_segment[1];  // freeList should now point to next segment (or to null)
+			let block = current_free_segment + 1;  // the user receive pointer to the second byte of the segment
+			return block;
+		}
+		let prev_free_segment[1] = current_free_segment[1]; // prev segment should point to next segment
+		let block = current_free_segment + 1;  // the user receive pointer to the second byte of the segment
+		return block ;
+    }
+
+    /** De-allocates the given object (cast as an array) by making
+     *  it available for future allocations. */
+    function void deAlloc(Array o) {
+        // Pseudocode:
+        // 1. segment = o - 1
+        // 2. Insert segment into the freeList
+				
+		let o[0] = freeList;
+		let freeList = o - 1;
+		
+		return;
+		
+    }    
+
+    /** Returns the maximal element contained in the given Array/object. 
+     *  Assume inputs are initialized and contain at least one element. */
+    function int max(Array o) {
+        // Hint: the algorithm you need to implement in Memory.alloc saves the
+        // size of the allocated block in the memory cell right before the 
+        // start of the block, and this can be used to implement Memory.max.
+		
+		var int i;
+		var int n ;
+		var int max;
+		let n = o[-1];  // staring with the assumption the first byte is the max one
+        let i = 1;
+        let max = o[0];
+        while (i < n) 
+		{
+            if (max < o[i]) {
+                let max = o[i];
+            }
+            let i = i + 1;
+        }
+        return max;
+		
+    }
+}
